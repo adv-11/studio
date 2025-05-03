@@ -2,6 +2,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import JSZip from 'jszip';
 
 /**
  * Represents a GitHub repository.
@@ -90,41 +91,96 @@ export async function fetchRepositoryContent(repository: GitHubRepository): Prom
   });
 }
 
-// Placeholder for ZIP file processing - implement if needed
+/**
+ * Processes a base64 encoded ZIP file data URI, extracts Python files,
+ * and returns their concatenated content.
+ *
+ * @param zipFileBase64 The ZIP file content as a base64 encoded data URI.
+ * @returns A promise that resolves to the concatenated content of Python files within the ZIP.
+ */
 export async function processZipFileContent(zipFileBase64: string): Promise<string> {
-  console.warn("ZIP file processing is not yet implemented.");
-  // TODO: Implement logic to decode base64, extract ZIP, read relevant files
+  console.log("Processing ZIP file content...");
   try {
     // Basic check for data URI format
-    if (!zipFileBase64.startsWith('data:')) {
-        throw new Error('Invalid data URI format for ZIP file.');
+    if (!zipFileBase64.startsWith('data:application/zip;base64,') && !zipFileBase64.startsWith('data:application/x-zip-compressed;base64,')) {
+        console.warn("Unexpected ZIP MIME type in data URI:", zipFileBase64.substring(0, 50));
+        // Attempt to proceed anyway, assuming it's base64 after the comma
     }
-    // Placeholder: Decode base64 (actual extraction/reading needed)
+
     const base64Data = zipFileBase64.split(',')[1];
     if (!base64Data) {
          throw new Error('Could not extract base64 data from ZIP file URI.');
     }
-    // const buffer = Buffer.from(base64Data, 'base64');
-    // Use a library like 'jszip' to process the buffer
-    // Example:
-    // const JSZip = require('jszip');
-    // const zip = await JSZip.loadAsync(buffer);
-    // let combinedContent = '';
-    // for (const filename of Object.keys(zip.files)) {
-    //   if (filename.endsWith('.py')) { // Filter for Python files
-    //     const file = zip.files[filename];
-    //     if (!file.dir) {
-    //       combinedContent += await file.async('string') + '\n\n---\n\n'; // Add separator
-    //     }
-    //   }
-    // }
-    // return combinedContent;
-     return `Content from uploaded ZIP file (processing not fully implemented). Length: ${base64Data.length}`;
+
+    console.log(`Decoding base64 data (length: ${base64Data.length})...`);
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    console.log("Loading ZIP data using JSZip...");
+    const zip = await JSZip.loadAsync(buffer);
+    let combinedContent = "";
+    const separator = "\n\n--- FILE: {filepath} ---\n\n";
+    let pythonFilesFound = 0;
+
+    // Iterate through files in the ZIP asynchronously
+    const filePromises = Object.keys(zip.files).map(async (filepath) => {
+      // Filter for Python files and ignore directories/mac metadata
+      if (filepath.endsWith('.py') && !filepath.startsWith('__MACOSX/') && !zip.files[filepath].dir) {
+        const file = zip.files[filepath];
+        console.log(`Extracting content from: ${filepath}`);
+        try {
+            const content = await file.async('string');
+            pythonFilesFound++;
+            return separator.format({ filepath: filepath }) + content;
+        } catch (readError) {
+            console.error(`Error reading file ${filepath} from ZIP:`, readError);
+            return ""; // Skip faulty files
+        }
+
+      }
+      return ""; // Return empty string for non-python files/dirs
+    });
+
+    // Wait for all file reads to complete and combine results
+    const contents = await Promise.all(filePromises);
+    combinedContent = contents.join('');
+
+
+    if (pythonFilesFound === 0) {
+      console.warn("No Python (.py) files found in the uploaded ZIP archive.");
+      return ""; // Return empty if no Python files found
+    }
+
+    console.log(`Successfully extracted content from ${pythonFilesFound} Python files in ZIP.`);
+    return combinedContent;
 
   } catch(error) {
       console.error("Error processing ZIP file:", error);
       throw new Error(`Failed to process ZIP file: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
+
+
+// Helper extension for String prototype - format method (similar to Python's)
+// Usage: "Hello {name}".format({ name: "World" }) -> "Hello World"
+declare global {
+  interface String {
+    format(values: Record<string, any>): string;
+  }
+}
+
+if (!String.prototype.format) {
+  String.prototype.format = function(values: Record<string, any>): string {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let str = this.toString();
+    if (values) {
+      Object.keys(values).forEach(key => {
+        const regexp = new RegExp(`\\{${key}\\}`, 'gi');
+        str = str.replace(regexp, values[key]);
+      });
+    }
+    return str;
+  };
+}
+
 
     

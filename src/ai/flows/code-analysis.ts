@@ -56,7 +56,59 @@ export async function analyzeCodeAndProvideReport(
   return analyzeCodeAndProvideReportFlow(input);
 }
 
-// Tool for refactoring.guru lookup (existing)
+// Helper function for web search using Serper API
+async function performWebSearch(query: string): Promise<string> {
+  const apiKey = process.env.SERPER_API_KEY;
+  if (!apiKey) {
+    console.warn("SERPER_API_KEY is not set. Web search tool will return placeholder data.");
+    return `Placeholder search results for '${query}'. SERPER_API_KEY not configured.`;
+    // Or throw an error: throw new Error("SERPER_API_KEY is not set.");
+  }
+
+  console.log(`[WebSearch] Performing search for: ${query}`);
+  try {
+    const response = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ q: query }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`Serper API error: ${response.status} ${response.statusText}`, errorBody);
+      throw new Error(`Search API request failed with status ${response.status}`);
+    }
+
+    const results = await response.json();
+
+    // Extract relevant information (e.g., top 3 snippets)
+    const snippets = results.organic?.slice(0, 3).map((item: any) => ({
+        title: item.title,
+        link: item.link,
+        snippet: item.snippet,
+    })) || [];
+
+     if (results.answerBox) {
+      return `Answer: ${results.answerBox.answer || results.answerBox.snippet}\n\nRelated Results:\n${snippets.map((s: any) => `- ${s.title}: ${s.snippet} (${s.link})`).join('\n')}`;
+    }
+
+    if (snippets.length > 0) {
+        return `Top Results:\n${snippets.map((s: any) => `- ${s.title}: ${s.snippet} (${s.link})`).join('\n')}`;
+    } else {
+        return `No direct results found for '${query}'.`;
+    }
+
+  } catch (error) {
+    console.error("Error performing web search:", error);
+    return `Error performing web search for '${query}'.`;
+  }
+}
+
+
+// Tool for refactoring.guru lookup (using web search)
 const refactorGuruTool = ai.defineTool({
   name: 'refactorGuruLookup',
   description: 'Lookup information about refactoring techniques, design patterns, and code smells from refactoring.guru. Use this to provide more context or examples for identified issues.',
@@ -66,48 +118,35 @@ const refactorGuruTool = ai.defineTool({
   outputSchema: z.string().describe('A summary of information found on refactoring.guru for the query.'),
 },
 async input => {
-  // TODO: Implement actual lookup via scraping or searching refactoring.guru
-  // This remains a placeholder.
   console.log(`[refactorGuruLookup Tool] Received query: ${input.query}`);
-  // Simulate finding some information
-  const baseUrl = "https://refactoring.guru";
-  let foundInfo = `Placeholder information for '${input.query}' from refactoring.guru.`;
-  if (input.query.toLowerCase().includes("smell")) {
-      foundInfo += ` Code smells often indicate deeper problems in the code structure. Check ${baseUrl}/smells for details.`;
-  } else if (input.query.toLowerCase().includes("pattern")) {
-       foundInfo += ` Design patterns are reusable solutions to common problems. See ${baseUrl}/design-patterns for examples.`;
-  } else if (input.query.toLowerCase().includes("refactoring")) {
-       foundInfo += ` Refactoring improves code structure without changing external behavior. Explore techniques at ${baseUrl}/refactoring/techniques.`;
-  }
-  return foundInfo;
+  // Construct a targeted search query for refactoring.guru
+  const searchQuery = `site:refactoring.guru ${input.query}`;
+  return performWebSearch(searchQuery);
 });
 
 
-// Tool for web search (new placeholder)
+// Tool for general web search (using Serper)
 const webSearchTool = ai.defineTool({
     name: 'webSearch',
-    description: 'Perform a web search to find relevant information, documentation, or examples for libraries, frameworks, or specific programming concepts mentioned in the code or analysis.',
+    description: 'Perform a general web search to find relevant information, documentation, or examples for libraries, frameworks, or specific programming concepts mentioned in the code or analysis.',
     inputSchema: z.object({
         query: z.string().describe('The search query string.'),
     }),
     outputSchema: z.string().describe('A summary of the top web search results for the query.'),
 },
 async input => {
-    // TODO: Implement actual web search functionality (e.g., using a search API)
-    // This is a placeholder.
     console.log(`[webSearch Tool] Received query: ${input.query}`);
-    // Simulate finding some search results
-    return `Placeholder search results for '${input.query}'. Found documentation links and examples.`;
+    return performWebSearch(input.query);
 });
 
 
 const prompt = ai.definePrompt({
   name: 'analyzeCodeAndProvideReportPrompt',
-  tools: [refactorGuruTool, webSearchTool], // Add the new web search tool
+  tools: [refactorGuruTool, webSearchTool], // Use the implemented tools
   input: {
     schema: z.object({
-      codeContext: z.string().describe('The Python code content fetched from the repository or ZIP file.'),
-      sourceDescription: z.string().describe('Description of the source (e.g., GitHub URL or ZIP filename).') // Added source description
+      codeContext: z.string().describe('The Python code content fetched from the repository or ZIP file, structured with file separators.'), // Updated description
+      sourceDescription: z.string().describe('Description of the source (e.g., GitHub URL or ZIP filename).')
     }),
   },
   output: {
@@ -116,25 +155,25 @@ const prompt = ai.definePrompt({
   },
   prompt: `You are an expert Python software engineer specializing in code refactoring and identifying code quality issues.
 
-  Analyze the following Python code provided below, sourced from '{{{sourceDescription}}}'.
+  Analyze the following Python code provided below, sourced from '{{{sourceDescription}}}'. The code from different files is separated by '--- FILE: <filepath> ---'. Pay attention to file paths for context.
 
   Your task is to provide a detailed refactoring report including:
-  1.  **Detected Code Smells:** Identify specific code smells present (e.g., Long Method, Large Class, Duplicated Code, Data Clumps, Feature Envy). Be specific about *where* they might occur if possible, based on the provided code snippets.
-  2.  **Identified Design Patterns:** Recognize any design patterns used (correctly or incorrectly) or suggest where patterns like Factory, Singleton, Strategy, Observer, etc., could be beneficially applied.
-  3.  **Suggested Refactoring Steps:** Propose concrete refactoring steps (e.g., Extract Method, Move Method, Replace Conditional with Polymorphism, Introduce Parameter Object). Prioritize steps that address the most significant identified smells.
+  1.  **Detected Code Smells:** Identify specific code smells present (e.g., Long Method, Large Class, Duplicated Code, Data Clumps, Feature Envy). Be specific about *which file(s) and potentially which parts of the code* they occur in, based on the provided snippets and file separators.
+  2.  **Identified Design Patterns:** Recognize any design patterns used (correctly or incorrectly) or suggest where patterns like Factory, Singleton, Strategy, Observer, etc., could be beneficially applied. Mention relevant file(s).
+  3.  **Suggested Refactoring Steps:** Propose concrete refactoring steps (e.g., Extract Method, Move Method, Replace Conditional with Polymorphism, Introduce Parameter Object). Prioritize steps that address the most significant identified smells. Be specific about the file(s) involved.
 
-  Use the available tools when necessary:
-  - Use the 'refactorGuruLookup' tool *only* to get concise definitions or brief examples for specific smells, patterns, or refactoring techniques you mention in your report to add clarity.
-  - Use the 'webSearch' tool if you need to find external documentation or examples for libraries, frameworks, or complex concepts encountered in the code that require further context beyond general refactoring knowledge.
+  Use the available tools *only when necessary* to enhance your analysis:
+  - Use the 'refactorGuruLookup' tool *sparingly* to get concise definitions or brief official examples for specific smells, patterns, or refactoring techniques you mention, if you need to clarify the concept based on refactoring.guru's description.
+  - Use the 'webSearch' tool if you encounter specific libraries, frameworks (e.g., Flask, Django, Pandas), or complex Python concepts within the code that require external documentation or examples to understand their usage context for your analysis. Do not use it for general knowledge lookup.
 
-  Do not overuse the tools; rely on your expertise first.
+  Rely primarily on your expertise. Explain your reasoning clearly in the report.
 
   Code to Analyze:
   \`\`\`python
   {{{codeContext}}}
   \`\`\`
 
-  Format your response strictly as a JSON object matching the expected output schema (report, codeSmells, designPatterns, suggestedRefactoringSteps). The 'report' field should contain a concise summary of your findings.
+  Format your response strictly as a JSON object matching the expected output schema (report, codeSmells, designPatterns, suggestedRefactoringSteps). The 'report' field should contain a comprehensive summary of your findings, referencing specific files where applicable.
   `,
 });
 
