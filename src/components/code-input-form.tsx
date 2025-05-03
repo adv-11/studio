@@ -42,16 +42,16 @@ const formSchema = z.object({
 
 // Define props interface to accept state setters from parent
 interface CodeInputFormProps {
-    setIsLoading: (isLoading: boolean) => void;
-    setAnalysisResult: (result: AnalyzeCodeAndProvideReportOutput | null) => void;
+    // Callback when analysis starts
+    onAnalysisStart: () => void;
+    // Callback when analysis completes (successfully or with error)
+    onAnalysisComplete: (result: AnalyzeCodeAndProvideReportOutput | null, error?: string) => void;
     isLoading: boolean; // Receive isLoading to disable button
 }
 
-export function CodeInputForm({ setIsLoading, setAnalysisResult, isLoading }: CodeInputFormProps) {
+export function CodeInputForm({ onAnalysisStart, onAnalysisComplete, isLoading }: CodeInputFormProps) {
   const { toast } = useToast();
   // isLoading and analysisResult state are now managed by the parent (Home component)
-  // const [isLoading, setIsLoading] = React.useState(false); // Removed
-  // const [analysisResult, setAnalysisResult] = React.useState<any>(null); // Removed
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -64,11 +64,11 @@ export function CodeInputForm({ setIsLoading, setAnalysisResult, isLoading }: Co
   const inputType = form.watch("inputType");
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    setIsLoading(true);
-    setAnalysisResult(null); // Clear previous results in parent state
+    onAnalysisStart(); // Notify parent that analysis is starting
     console.log("Submitting values:", values);
 
     let analysisInput: AnalyzeCodeAndProvideReportInput = {};
+    let errorMessage: string | undefined = undefined;
 
     if (values.inputType === 'github' && values.githubUrl) {
         analysisInput.githubRepoUrl = values.githubUrl;
@@ -83,21 +83,23 @@ export function CodeInputForm({ setIsLoading, setAnalysisResult, isLoading }: Co
             analysisInput.zipFileBase64 = fileContentBase64;
         } catch (error) {
             console.error("Error reading file:", error);
+            errorMessage = "Could not read the uploaded ZIP file.";
             toast({
                 variant: "destructive",
                 title: "File Read Error",
-                description: "Could not read the uploaded ZIP file.",
+                description: errorMessage,
             });
-            setIsLoading(false);
+            onAnalysisComplete(null, errorMessage); // Notify parent of error
             return;
         }
     } else {
+         errorMessage = "Invalid input provided. Please select a source and provide the required information.";
          toast({
             variant: "destructive",
             title: "Input Error",
-            description: "Invalid input provided.",
+            description: errorMessage,
         });
-        setIsLoading(false);
+        onAnalysisComplete(null, errorMessage); // Notify parent of error
         return;
     }
 
@@ -106,7 +108,7 @@ export function CodeInputForm({ setIsLoading, setAnalysisResult, isLoading }: Co
       // Call the Genkit flow
       const result = await analyzeCodeAndProvideReport(analysisInput);
       console.log("Analysis Result:", result);
-      setAnalysisResult(result); // Update parent state with the result
+      onAnalysisComplete(result); // Notify parent with the result
       toast({
         title: "Analysis Complete",
         description: "Your code has been analyzed successfully.",
@@ -114,15 +116,16 @@ export function CodeInputForm({ setIsLoading, setAnalysisResult, isLoading }: Co
 
     } catch (error) {
       console.error("Analysis Error:", error);
-      setAnalysisResult(null); // Clear result on error
-      toast({
-        variant: "destructive",
-        title: "Analysis Failed",
-        description: `An error occurred during analysis: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      });
-    } finally {
-      setIsLoading(false); // Update parent state
+      errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during analysis.';
+      onAnalysisComplete(null, errorMessage); // Notify parent of error
+      // Error message is now displayed in the parent component
+      // toast({
+      //   variant: "destructive",
+      //   title: "Analysis Failed",
+      //   description: `An error occurred during analysis: ${errorMessage}`,
+      // });
     }
+    // finally block removed as parent handles isLoading state via callbacks
   }
 
   return (

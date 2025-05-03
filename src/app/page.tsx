@@ -2,31 +2,35 @@
 "use client"; // Add this directive because we are using useState
 
 import * as React from 'react';
-import type { Metadata } from 'next';
 import { Header } from '@/components/header';
 import { CodeInputForm } from '@/components/code-input-form';
 import { AnalysisReport } from '@/components/analysis-report';
 import { Separator } from '@/components/ui/separator';
 import type { AnalyzeCodeAndProvideReportOutput } from "@/ai/flows/code-analysis";
 
-// Note: Metadata export is generally for Server Components.
-// Since we added "use client", this might behave differently or is better placed elsewhere
-// if this page becomes purely client-rendered. For now, we leave it but acknowledge the change.
-// export const metadata: Metadata = {
-//   title: 'VibeRefactor | Analyze Your Code',
-//   description: 'Upload your Python code via GitHub URL or ZIP file for AI-powered refactoring analysis.',
-// };
-
-
 export default function Home() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [analysisResult, setAnalysisResult] = React.useState<AnalyzeCodeAndProvideReportOutput | null>(null);
+  const [error, setError] = React.useState<string | null>(null); // Add error state
+
+  const handleAnalysisStart = () => {
+    setIsLoading(true);
+    setAnalysisResult(null);
+    setError(null); // Clear previous errors
+  };
+
+  const handleAnalysisComplete = (result: AnalyzeCodeAndProvideReportOutput | null, error?: string) => {
+    setIsLoading(false);
+    setAnalysisResult(result);
+    setError(error || null); // Set error if present
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
       <Header />
       {/* Reduced vertical padding */}
       <main className="flex-1 container mx-auto px-4 py-6 md:py-8">
+        {/* Adjust main grid layout if needed */}
         <div className="grid gap-8 md:grid-cols-2 md:gap-12 lg:gap-16 h-full">
           {/* Input Form Column */}
           <div className="space-y-6">
@@ -38,22 +42,28 @@ export default function Home() {
               Our AI agent will analyze it for code smells, design patterns, and suggest refactoring steps.
             </p>
             <CodeInputForm
-              setIsLoading={setIsLoading}
-              setAnalysisResult={setAnalysisResult}
+              // Pass handlers instead of direct setters
+              onAnalysisStart={handleAnalysisStart}
+              onAnalysisComplete={handleAnalysisComplete}
               isLoading={isLoading}
             />
+             {error && ( // Display error message below the form
+                <div className="mt-4 text-destructive text-sm p-4 border border-destructive/50 rounded-md bg-destructive/10">
+                    <p><strong>Analysis Error:</strong> {error}</p>
+                </div>
+             )}
           </div>
 
-          {/* Analysis Report Column - Added fixed height and overflow handling */}
-          <div className="rounded-lg border bg-card text-card-foreground shadow-sm flex flex-col h-[calc(100vh-160px)]"> {/* Adjust height based on header/footer */}
+          {/* Analysis Report Column - Ensure parent div allows flex-grow */}
+          <div className="rounded-lg border bg-card text-card-foreground shadow-sm flex flex-col h-[calc(100vh-160px)]"> {/* Adjust height if header/footer size changes */}
             <div className="p-6 flex-shrink-0">
                 <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-foreground">
                 Refactoring Report
                 </h2>
             </div>
-            <Separator className="mb-0 flex-shrink-0" /> {/* Remove margin bottom */}
-            {/* AnalysisReport will now use ScrollArea internally */}
-            <div className="flex-grow overflow-hidden p-6 pt-0"> {/* Add padding here, remove from ScrollArea in child */}
+            <Separator className="mb-0 flex-shrink-0" />
+            {/* Content area - let AnalysisReport's ScrollArea handle scrolling */}
+            <div className="flex-grow overflow-hidden p-6 pt-0"> {/* Padding moved here */}
                  <AnalysisReport reportData={analysisResult} isLoading={isLoading} />
             </div>
           </div>
