@@ -1,5 +1,5 @@
 
-import { spawn } from 'child_process';
+import { spawn, SpawnOptions } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import JSZip from 'jszip';
@@ -19,6 +19,31 @@ export interface GitHubRepository {
 }
 
 /**
+ * Attempts to execute a command and returns the process.
+ * @param command The command executable (e.g., 'python3', 'python').
+ * @param args Arguments for the command.
+ * @param options Spawn options.
+ * @returns The spawned process or null if the command is not found (ENOENT).
+ */
+function trySpawn(command: string, args: string[], options: SpawnOptions) {
+    try {
+        const process = spawn(command, args, options);
+        process.on('error', (error: NodeJS.ErrnoException) => {
+            // Only log if it's not an ENOENT error, as we handle that specifically
+            if (error.code !== 'ENOENT') {
+                console.error(`Error spawning command '${command}': ${error.message}`);
+            }
+        });
+        return process;
+    } catch (error: any) {
+        // This catch block might be redundant if spawn itself throws, but included for safety
+        console.error(`Unexpected error trying to spawn '${command}': ${error.message}`);
+        return null;
+    }
+}
+
+
+/**
  * Fetches the content of Python files from a GitHub repository using a Python script
  * that utilizes the 'gitingest' library.
  *
@@ -27,69 +52,126 @@ export interface GitHubRepository {
  */
 export async function fetchRepositoryContent(repository: GitHubRepository): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Construct the URL - gitingest might handle URLs without .git, but let's stick to the format if possible
     const githubUrl = `https://github.com/${repository.owner}/${repository.repo}`;
-    // Ensure the scripts directory and Python script exist
     const scriptPath = path.join(process.cwd(), 'scripts', 'fetch_repo_content.py');
-    const pythonExecutable = 'python3'; // Explicitly use python3
+    const pythonExecutables = ['python3', 'python']; // Try 'python3' first, then 'python'
 
     if (!fs.existsSync(scriptPath)) {
         return reject(new Error(`Python script not found at ${scriptPath}. Ensure 'scripts/fetch_repo_content.py' exists.`));
     }
 
-    console.log(`Executing command: ${pythonExecutable} ${scriptPath} for URL: ${githubUrl}`);
-    // Execute the Python script
-    // Ensure the PATH includes the directory containing 'python3' when the Node server runs
-    const pythonProcess = spawn(pythonExecutable, [scriptPath, githubUrl], {
-        // cwd: process.cwd(), // Usually implied, but can be explicit
-        // env: process.env // Inherit environment variables
-    });
+    let pythonProcess: ReturnType<typeof spawn> | null = null;
+    let triedExecutables: string[] = [];
 
-    let stdoutData = '';
-    let stderrData = '';
+    for (const executable of pythonExecutables) {
+        triedExecutables.push(executable);
+        console.log(`Attempting to execute command: ${executable} ${scriptPath} for URL: ${githubUrl}`);
+        pythonProcess = spawn(executable, [scriptPath, githubUrl]);
 
-    // Capture standard output
-    pythonProcess.stdout.on('data', (data) => {
-      stdoutData += data.toString();
-    });
+        let spawnFailedWithError: NodeJS.ErrnoException | null = null;
 
-    // Capture standard error
-    pythonProcess.stderr.on('data', (data) => {
-      stderrData += data.toString();
-      console.error(`Python script stderr: ${data}`); // Log stderr immediately
-    });
+        // Temporarily listen for 'error' specifically for ENOENT check
+        const errorListener = (error: NodeJS.ErrnoException) => {
+            if (error.code === 'ENOENT') {
+                console.warn(`Command '${executable}' not found. Trying next option...`);
+                spawnFailedWithError = error;
+                pythonProcess?.removeListener('error', errorListener); // Clean up listener
+            } else {
+                // For other errors, let the main error handler below catch them
+                 spawnFailedWithError = error; // Store other errors too
+                 pythonProcess?.removeListener('error', errorListener);
+            }
+        };
+        pythonProcess.on('error', errorListener);
 
-    // Handle script exit
-    pythonProcess.on('close', (code) => {
-      console.log(`Python script exited with code ${code}`);
-      if (code !== 0) {
-        console.error(`Python script failed. Stderr: ${stderrData}`);
-        reject(new Error(`Python script failed with code ${code}: ${stderrData || 'Unknown error'}`));
-      } else if (stderrData && !stdoutData) {
-        // Sometimes gitingest might log warnings to stderr but still succeed
-        console.warn(`Python script finished with warnings: ${stderrData}`);
-         resolve(''); // Resolve with empty if no stdout but script succeeded with warnings
-      }
-       else if (!stdoutData) {
-         console.warn(`Python script produced no stdout output, though it exited successfully (code 0). No Python files might have been found.`);
-         resolve(''); // Resolve with empty string if no content was fetched but script succeeded
-       }
-      else {
-        resolve(stdoutData);
-      }
-    });
 
-    // Handle errors during process spawning (like ENOENT)
-    pythonProcess.on('error', (error: NodeJS.ErrnoException) => {
-      console.error(`Failed to start Python script '${pythonExecutable}': ${error.message}`);
-      if (error.code === 'ENOENT') {
-           reject(new Error(`Failed to start Python script. '${pythonExecutable}' command not found. Make sure Python 3 is installed and available in the system's PATH.`));
-      } else {
-           reject(new Error(`Failed to start Python script: ${error.message}`));
-      }
-    });
+        // Need to wait briefly to see if the 'error' event fires for ENOENT
+        // This is a bit hacky, ideally spawnSync or a more robust check would be better
+        // Or refactor to use async/await with the error event. Let's try a slightly different structure.
+
+         // Let's restructure to handle the error event more directly
+         let stdoutData = '';
+         let stderrData = '';
+         let processExited = false;
+         let processError: Error | null = null;
+
+         const processPromise = new Promise<void>((procResolve, procReject) => {
+
+             pythonProcess!.stdout.on('data', (data) => { stdoutData += data.toString(); });
+             pythonProcess!.stderr.on('data', (data) => { stderrData += data.toString(); console.error(`[${executable}] script stderr: ${data}`); });
+
+             pythonProcess!.on('close', (code) => {
+                 processExited = true;
+                 console.log(`[${executable}] script exited with code ${code}`);
+                 if (code !== 0) {
+                     processError = new Error(`Python script failed with code ${code}: ${stderrData || 'Unknown error'}`);
+                 }
+                 procResolve(); // Resolve even on error, we check processError later
+             });
+
+             pythonProcess!.on('error', (error: NodeJS.ErrnoException) => {
+                  processExited = true;
+                  console.error(`[${executable}] Failed to start script: ${error.message}`);
+                  processError = error; // Store the error
+                  procReject(error); // Reject the inner promise on spawn error
+             });
+         });
+
+
+         return processPromise
+             .then(() => {
+                 // This block runs after 'close' or if 'error' occurred AND we caught it (which we don't here)
+                 if (!processError) {
+                     // Success with this executable
+                     if (!stdoutData && stderrData) {
+                         console.warn(`[${executable}] script finished successfully but produced only stderr warnings: ${stderrData}`);
+                         resolve('');
+                     } else if (!stdoutData) {
+                          console.warn(`[${executable}] script produced no stdout output, though it exited successfully (code 0). No Python files might have been found.`);
+                          resolve('');
+                     } else {
+                         console.log(`Successfully executed with '${executable}'.`);
+                         resolve(stdoutData);
+                     }
+                     // IMPORTANT: Exit the loop and the main promise logic
+                     return { success: true };
+                 } else {
+                      // Script failed for reasons other than ENOENT (handled by procReject)
+                      console.error(`[${executable}] script failed during execution: ${processError.message}`);
+                      // Continue loop to try next executable
+                      return { success: false };
+                 }
+
+             })
+             .catch((spawnError: NodeJS.ErrnoException) => {
+                  // This block runs ONLY if the 'error' event fired during spawn (likely ENOENT)
+                  if (spawnError.code === 'ENOENT') {
+                       console.warn(`Command '${executable}' not found or failed to spawn. Trying next...`);
+                       // Continue loop
+                       return { success: false };
+                  } else {
+                       // Other spawn error, reject the main promise
+                       reject(new Error(`Failed to start Python script '${executable}': ${spawnError.message}`));
+                       return { success: true }; // Stop the loop
+                  }
+             })
+             .then(({ success }) => {
+                  if (success) {
+                      // If resolved or rejected already, break the loop
+                      return true; // Indicate loop should stop
+                  }
+                  // Otherwise, continue to next iteration
+                  return false; // Indicate loop should continue
+             });
+
+    } // End of loop over executables
+
+    // If loop finishes without resolving/rejecting, it means all executables failed (likely ENOENT)
+    reject(new Error(`Failed to execute Python script. Tried: ${triedExecutables.join(', ')}. None were found or executable in the system's PATH. Please ensure Python 3 is installed and accessible.`));
+
   });
 }
+
 
 /**
  * Processes a base64 encoded ZIP file data URI, extracts Python files,
