@@ -56,6 +56,7 @@ export async function analyzeCodeAndProvideReport(
   return analyzeCodeAndProvideReportFlow(input);
 }
 
+// Tool for refactoring.guru lookup (existing)
 const refactorGuruTool = ai.defineTool({
   name: 'refactorGuruLookup',
   description: 'Lookup information about refactoring techniques, design patterns, and code smells from refactoring.guru. Use this to provide more context or examples for identified issues.',
@@ -81,9 +82,28 @@ async input => {
   return foundInfo;
 });
 
+
+// Tool for web search (new placeholder)
+const webSearchTool = ai.defineTool({
+    name: 'webSearch',
+    description: 'Perform a web search to find relevant information, documentation, or examples for libraries, frameworks, or specific programming concepts mentioned in the code or analysis.',
+    inputSchema: z.object({
+        query: z.string().describe('The search query string.'),
+    }),
+    outputSchema: z.string().describe('A summary of the top web search results for the query.'),
+},
+async input => {
+    // TODO: Implement actual web search functionality (e.g., using a search API)
+    // This is a placeholder.
+    console.log(`[webSearch Tool] Received query: ${input.query}`);
+    // Simulate finding some search results
+    return `Placeholder search results for '${input.query}'. Found documentation links and examples.`;
+});
+
+
 const prompt = ai.definePrompt({
   name: 'analyzeCodeAndProvideReportPrompt',
-  tools: [refactorGuruTool],
+  tools: [refactorGuruTool, webSearchTool], // Add the new web search tool
   input: {
     schema: z.object({
       codeContext: z.string().describe('The Python code content fetched from the repository or ZIP file.'),
@@ -103,7 +123,11 @@ const prompt = ai.definePrompt({
   2.  **Identified Design Patterns:** Recognize any design patterns used (correctly or incorrectly) or suggest where patterns like Factory, Singleton, Strategy, Observer, etc., could be beneficially applied.
   3.  **Suggested Refactoring Steps:** Propose concrete refactoring steps (e.g., Extract Method, Move Method, Replace Conditional with Polymorphism, Introduce Parameter Object). Prioritize steps that address the most significant identified smells.
 
-  Use the 'refactorGuruLookup' tool *only if necessary* to get concise definitions or brief examples for specific smells, patterns, or refactoring techniques you mention in your report to add clarity. Do not overuse the tool; rely on your expertise first.
+  Use the available tools when necessary:
+  - Use the 'refactorGuruLookup' tool *only* to get concise definitions or brief examples for specific smells, patterns, or refactoring techniques you mention in your report to add clarity.
+  - Use the 'webSearch' tool if you need to find external documentation or examples for libraries, frameworks, or complex concepts encountered in the code that require further context beyond general refactoring knowledge.
+
+  Do not overuse the tools; rely on your expertise first.
 
   Code to Analyze:
   \`\`\`python
@@ -131,34 +155,30 @@ const analyzeCodeAndProvideReportFlow = ai.defineFlow<
       sourceDescription = `GitHub repository: ${input.githubRepoUrl}`;
       console.log(`Processing ${sourceDescription}`);
       try {
+        // Basic validation on the URL structure for owner/repo
         const url = new URL(input.githubRepoUrl);
         const parts = url.pathname.split('/').filter(Boolean);
 
-        if (parts.length < 2) { // Allow for URLs like github.com/owner/repo/tree/branch
-          throw new Error('Invalid GitHub repository URL format. Expected owner/repo.');
+        if (parts.length < 2) {
+          throw new Error('Invalid GitHub repository URL format. Expected path like /owner/repo.');
         }
 
         const owner = parts[0];
         const repo = parts[1].replace('.git', ''); // Remove .git if present
 
         const repoInfo: GitHubRepository = {owner: owner, repo: repo};
-        codeContext = await fetchRepositoryContent(repoInfo); // Use the updated service function
+        codeContext = await fetchRepositoryContent(repoInfo); // Use the service function
 
         if (!codeContext) {
-            console.warn(`fetchRepositoryContent returned empty for ${input.githubRepoUrl}. Proceeding with empty context.`);
-            // Optionally, throw an error or return a specific message
-            // throw new Error("Failed to fetch any Python code from the repository.");
+            console.warn(`fetchRepositoryContent returned empty for ${input.githubRepoUrl}. This might mean no Python files were found or an issue occurred.`);
+            // Proceeding with empty context, LLM might indicate this.
         } else {
              console.log(`Successfully fetched code content (length: ${codeContext.length}) from ${input.githubRepoUrl}`);
         }
 
       } catch (error: any) {
         console.error(`Error fetching or processing repository ${input.githubRepoUrl}:`, error);
-        // Rethrow or handle appropriately - maybe return a structured error in the report?
         throw new Error(`Failed to process repository ${input.githubRepoUrl}: ${error.message}`);
-        // Alternatively, set codeContext to an error message for the LLM:
-        // codeContext = `Error: Could not fetch or process code from the repository ${input.githubRepoUrl}. Reason: ${error.message}`;
-        // sourceDescription += " (Error during processing)";
       }
     } else if (input.zipFileBase64) {
        sourceDescription = `Uploaded ZIP file`; // TODO: Extract filename if possible later
@@ -173,33 +193,18 @@ const analyzeCodeAndProvideReportFlow = ai.defineFlow<
        } catch (error: any) {
            console.error(`Error processing ZIP file:`, error);
            throw new Error(`Failed to process uploaded ZIP file: ${error.message}`);
-           // codeContext = `Error: Could not process the uploaded ZIP file. Reason: ${error.message}`;
-           // sourceDescription += " (Error during processing)";
        }
     } else {
       // This case should ideally be prevented by the refine check or earlier validation
       console.error("Flow started without githubRepoUrl or zipFileBase64.");
       throw new Error("Internal error: No code input provided to the flow.");
-      // codeContext = 'Error: No code source provided.';
-      // sourceDescription = 'Unknown source';
     }
 
-    // Handle cases where fetching/processing resulted in an error message *within* codeContext
-    // (if choosing not to throw errors earlier)
-    if (codeContext.startsWith('Error:')) {
-         console.error("Analysis skipped due to previous error:", codeContext);
-         // Return a structured error response instead of calling the LLM
-          return {
-            report: `Analysis skipped. ${codeContext}`,
-            codeSmells: [],
-            designPatterns: [],
-            suggestedRefactoringSteps: [],
-          };
-    }
      if (!codeContext.trim()) {
-         console.warn("Code context is empty. Analysis might yield limited results.");
+         console.warn("Code context is empty or whitespace only. Analysis might yield limited results.");
+          // Optionally return a specific message instead of calling LLM
           return {
-            report: `Analysis could not proceed. No Python code found in the provided source (${sourceDescription}). Please check the repository/ZIP file.`,
+            report: `Analysis could not proceed. No Python code found or extracted from the provided source (${sourceDescription}). Please check the repository/ZIP file and ensure it contains .py files.`,
             codeSmells: [],
             designPatterns: [],
             suggestedRefactoringSteps: [],
@@ -216,9 +221,6 @@ const analyzeCodeAndProvideReportFlow = ai.defineFlow<
     }
 
     console.log("LLM analysis successful.");
-    // Ensure the output matches the flow's output schema (important if starterTemplate was removed from prompt but not flow)
-    // If starterTemplate might exist in the output but shouldn't, delete it:
-    // delete (output as any).starterTemplate;
 
 
     // Ensure all required fields are present, provide defaults if necessary (though zod schema should handle this)
@@ -233,3 +235,6 @@ const analyzeCodeAndProvideReportFlow = ai.defineFlow<
     return finalOutput; // Return the structured output
   }
 );
+
+
+    

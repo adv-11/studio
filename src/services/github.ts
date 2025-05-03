@@ -26,17 +26,23 @@ export interface GitHubRepository {
  */
 export async function fetchRepositoryContent(repository: GitHubRepository): Promise<string> {
   return new Promise((resolve, reject) => {
-    const githubUrl = `https://github.com/${repository.owner}/${repository.repo}.git`;
+    // Construct the URL - gitingest might handle URLs without .git, but let's stick to the format if possible
+    const githubUrl = `https://github.com/${repository.owner}/${repository.repo}`;
     // Ensure the scripts directory and Python script exist
     const scriptPath = path.join(process.cwd(), 'scripts', 'fetch_repo_content.py');
+    const pythonExecutable = 'python3'; // Explicitly use python3
 
     if (!fs.existsSync(scriptPath)) {
         return reject(new Error(`Python script not found at ${scriptPath}. Ensure 'scripts/fetch_repo_content.py' exists.`));
     }
 
-    console.log(`Executing Python script: ${scriptPath} for URL: ${githubUrl}`);
+    console.log(`Executing command: ${pythonExecutable} ${scriptPath} for URL: ${githubUrl}`);
     // Execute the Python script
-    const pythonProcess = spawn('python3', [scriptPath, githubUrl]);
+    // Ensure the PATH includes the directory containing 'python3' when the Node server runs
+    const pythonProcess = spawn(pythonExecutable, [scriptPath, githubUrl], {
+        // cwd: process.cwd(), // Usually implied, but can be explicit
+        // env: process.env // Inherit environment variables
+    });
 
     let stdoutData = '';
     let stderrData = '';
@@ -61,12 +67,10 @@ export async function fetchRepositoryContent(repository: GitHubRepository): Prom
       } else if (stderrData && !stdoutData) {
         // Sometimes gitingest might log warnings to stderr but still succeed
         console.warn(`Python script finished with warnings: ${stderrData}`);
-        // Attempt to resolve with empty string if no stdout, but log warning
-         resolve(''); // Or reject depending on expected behavior for warnings
-         // reject(new Error(`Python script finished with warnings: ${stderrData}`));
+         resolve(''); // Resolve with empty if no stdout but script succeeded with warnings
       }
        else if (!stdoutData) {
-         console.warn(`Python script produced no output (stdout).`);
+         console.warn(`Python script produced no stdout output, though it exited successfully (code 0). No Python files might have been found.`);
          resolve(''); // Resolve with empty string if no content was fetched but script succeeded
        }
       else {
@@ -74,10 +78,14 @@ export async function fetchRepositoryContent(repository: GitHubRepository): Prom
       }
     });
 
-    // Handle errors during process spawning
-    pythonProcess.on('error', (error) => {
-      console.error(`Failed to start Python script: ${error.message}`);
-      reject(new Error(`Failed to start Python script: ${error.message}`));
+    // Handle errors during process spawning (like ENOENT)
+    pythonProcess.on('error', (error: NodeJS.ErrnoException) => {
+      console.error(`Failed to start Python script '${pythonExecutable}': ${error.message}`);
+      if (error.code === 'ENOENT') {
+           reject(new Error(`Failed to start Python script. '${pythonExecutable}' command not found. Make sure Python 3 is installed and available in the system's PATH.`));
+      } else {
+           reject(new Error(`Failed to start Python script: ${error.message}`));
+      }
     });
   });
 }
@@ -118,3 +126,5 @@ export async function processZipFileContent(zipFileBase64: string): Promise<stri
       throw new Error(`Failed to process ZIP file: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
+
+    
