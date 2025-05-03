@@ -19,8 +19,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { analyzeCodeAndProvideReport } from "@/ai/flows/code-analysis"; // Ensure this path is correct
-import type { AnalyzeCodeAndProvideReportInput } from "@/ai/flows/code-analysis"; // Ensure this path is correct
+import { analyzeCodeAndProvideReport } from "@/ai/flows/code-analysis";
+import type { AnalyzeCodeAndProvideReportInput, AnalyzeCodeAndProvideReportOutput } from "@/ai/flows/code-analysis";
 
 // Define the schema for the form
 const formSchema = z.object({
@@ -40,11 +40,18 @@ const formSchema = z.object({
     path: ["inputType"], // Attach error to a relevant field or create a general one
 });
 
+// Define props interface to accept state setters from parent
+interface CodeInputFormProps {
+    setIsLoading: (isLoading: boolean) => void;
+    setAnalysisResult: (result: AnalyzeCodeAndProvideReportOutput | null) => void;
+    isLoading: boolean; // Receive isLoading to disable button
+}
 
-export function CodeInputForm() {
+export function CodeInputForm({ setIsLoading, setAnalysisResult, isLoading }: CodeInputFormProps) {
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [analysisResult, setAnalysisResult] = React.useState<any>(null); // State to hold results
+  // isLoading and analysisResult state are now managed by the parent (Home component)
+  // const [isLoading, setIsLoading] = React.useState(false); // Removed
+  // const [analysisResult, setAnalysisResult] = React.useState<any>(null); // Removed
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -58,7 +65,7 @@ export function CodeInputForm() {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    setAnalysisResult(null); // Clear previous results
+    setAnalysisResult(null); // Clear previous results in parent state
     console.log("Submitting values:", values);
 
     let analysisInput: AnalyzeCodeAndProvideReportInput = {};
@@ -99,26 +106,22 @@ export function CodeInputForm() {
       // Call the Genkit flow
       const result = await analyzeCodeAndProvideReport(analysisInput);
       console.log("Analysis Result:", result);
-      setAnalysisResult(result); // Store result - this should trigger update in AnalysisReport
+      setAnalysisResult(result); // Update parent state with the result
       toast({
         title: "Analysis Complete",
         description: "Your code has been analyzed successfully.",
       });
-       // TODO: Pass 'result' to the AnalysisReport component or manage state globally
-       // For now, we'll just log it and show a success toast.
-       // You'll likely need a state management solution (Context API, Zustand, etc.)
-       // or pass the result down via props if AnalysisReport is a child here.
-
 
     } catch (error) {
       console.error("Analysis Error:", error);
+      setAnalysisResult(null); // Clear result on error
       toast({
         variant: "destructive",
         title: "Analysis Failed",
         description: `An error occurred during analysis: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Update parent state
     }
   }
 
@@ -131,10 +134,10 @@ export function CodeInputForm() {
           className="w-full"
         >
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="github">
+            <TabsTrigger value="github" disabled={isLoading}>
               <Github className="mr-2 h-4 w-4" /> GitHub URL
             </TabsTrigger>
-            <TabsTrigger value="zip">
+            <TabsTrigger value="zip" disabled={isLoading}>
               <Upload className="mr-2 h-4 w-4" /> Upload ZIP
             </TabsTrigger>
           </TabsList>
@@ -146,7 +149,7 @@ export function CodeInputForm() {
                 <FormItem>
                   <FormLabel>Public GitHub Repository URL</FormLabel>
                   <FormControl>
-                    <Input placeholder="https://github.com/owner/repo" {...field} />
+                    <Input placeholder="https://github.com/owner/repo" {...field} disabled={isLoading} />
                   </FormControl>
                   <FormDescription>
                     Enter the URL of a public Python repository.
@@ -169,6 +172,7 @@ export function CodeInputForm() {
                         accept=".zip"
                         onChange={(e) => onChange(e.target.files ? e.target.files[0] : null)}
                         {...rest}
+                        disabled={isLoading}
                         />
                     </FormControl>
                     <FormDescription>
@@ -185,12 +189,7 @@ export function CodeInputForm() {
           {isLoading ? "Analyzing..." : "Analyze Code"}
         </Button>
       </form>
-       {/* Temporary display of results - Replace with proper state management */}
-       {/* {analysisResult && (
-         <pre className="mt-4 p-4 bg-muted rounded-md overflow-x-auto text-sm">
-           {JSON.stringify(analysisResult, null, 2)}
-         </pre>
-       )} */}
+       {/* Removed temporary display */}
     </Form>
   );
 }

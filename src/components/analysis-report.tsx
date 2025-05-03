@@ -6,34 +6,29 @@ import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import type { AnalyzeCodeAndProvideReportOutput } from "@/ai/flows/code-analysis"; // Import the correct type
 
-// Define an interface for the expected report structure (based on AI flow output)
-interface AnalysisReportData {
-  report?: string;
-  codeSmells?: string[];
-  designPatterns?: string[];
-  suggestedRefactoringSteps?: string[];
-  starterTemplate?: string; // Assuming this might be a link or identifier
-}
+// Use the imported type directly
+type AnalysisReportData = AnalyzeCodeAndProvideReportOutput;
 
 interface AnalysisReportProps {
   reportData?: AnalysisReportData | null; // Allow null or undefined if no report yet
   isLoading?: boolean;
 }
 
-// Mock data for demonstration purposes when no reportData is passed
-const mockReportData: AnalysisReportData = {
-  report: "Initial analysis indicates several areas for improvement, particularly around method length and class cohesion. Applying suggested refactorings could enhance maintainability.",
-  codeSmells: ["Long Method", "Large Class", "Feature Envy"],
-  designPatterns: ["Factory Method (Potential)", "Observer (Consideration)"],
-  suggestedRefactoringSteps: [
-    "Extract Method: Break down `process_data` into smaller, focused functions.",
-    "Move Method: Relocate `calculate_metrics` to the `MetricsCalculator` class.",
-    "Introduce Parameter Object: Consolidate `user_id`, `session_id`, `timestamp` into a `RequestContext` object.",
-    "Replace Conditional with Polymorphism: Refactor `if/elif` block handling different report types using Strategy pattern.",
-  ],
-  starterTemplate: "placeholder_template_id" // Example
-};
+// Mock data for demonstration purposes when no reportData is passed (can be removed or kept for testing)
+// const mockReportData: AnalysisReportData = {
+//   report: "Initial analysis indicates several areas for improvement, particularly around method length and class cohesion. Applying suggested refactorings could enhance maintainability.",
+//   codeSmells: ["Long Method", "Large Class", "Feature Envy"],
+//   designPatterns: ["Factory Method (Potential)", "Observer (Consideration)"],
+//   suggestedRefactoringSteps: [
+//     "Extract Method: Break down `process_data` into smaller, focused functions.",
+//     "Move Method: Relocate `calculate_metrics` to the `MetricsCalculator` class.",
+//     "Introduce Parameter Object: Consolidate `user_id`, `session_id`, `timestamp` into a `RequestContext` object.",
+//     "Replace Conditional with Polymorphism: Refactor `if/elif` block handling different report types using Strategy pattern.",
+//   ],
+//   starterTemplate: "placeholder_template_id" // Example
+// };
 
 // Helper to get an icon for a category
 const getCategoryIcon = (category: 'smell' | 'pattern' | 'step') => {
@@ -51,8 +46,8 @@ const getCategoryIcon = (category: 'smell' | 'pattern' | 'step') => {
 
 
 export function AnalysisReport({ reportData: propReportData, isLoading }: AnalysisReportProps) {
-    // Use propReportData if available, otherwise use mock data only if not loading and no data provided
-    const reportData = isLoading ? null : (propReportData || null); // Don't use mock if loading or data exists
+    // Use propReportData if available, otherwise null
+    const reportData = isLoading ? null : (propReportData || null);
 
     const hasData = reportData && (
         reportData.report ||
@@ -75,6 +70,7 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
     <ScrollArea className="h-[60vh] pr-4"> {/* Adjust height as needed */}
      {isLoading ? (
         <div className="flex justify-center items-center h-full">
+           {/* Optional: Add a spinner */}
           <p className="text-muted-foreground animate-pulse">Analyzing code...</p>
         </div>
       ) : !hasData ? (
@@ -95,10 +91,10 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
                 </Card>
             )}
 
-            <Accordion type="multiple" defaultValue={['smells', 'steps']} className="w-full">
+            <Accordion type="multiple" defaultValue={['smells', 'steps', 'patterns']} className="w-full"> {/* Add 'patterns' to default */}
              {reportData.codeSmells && reportData.codeSmells.length > 0 && (
                 <AccordionItem value="smells">
-                    <AccordionTrigger className="text-lg font-medium">
+                    <AccordionTrigger className="text-lg font-medium hover:no-underline">
                     <div className="flex items-center">
                          {getCategoryIcon('smell')} Detected Code Smells ({reportData.codeSmells.length})
                     </div>
@@ -107,7 +103,7 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
                     <ul className="space-y-2 pl-4 list-disc list-inside">
                         {reportData.codeSmells.map((smell, index) => (
                         <li key={`smell-${index}`} className="text-sm text-foreground">
-                            {smell} - <a href={`https://refactoring.guru/smells/${smell.toLowerCase().replace(/\s+/g, '-')}`} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Learn more</a>
+                            {smell} - <a href={`https://refactoring.guru/smells/${smell.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Learn more</a>
                         </li>
                         ))}
                     </ul>
@@ -117,7 +113,7 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
 
                 {reportData.designPatterns && reportData.designPatterns.length > 0 && (
                 <AccordionItem value="patterns">
-                    <AccordionTrigger className="text-lg font-medium">
+                    <AccordionTrigger className="text-lg font-medium hover:no-underline">
                      <div className="flex items-center">
                          {getCategoryIcon('pattern')} Identified Design Patterns / Opportunities ({reportData.designPatterns.length})
                      </div>
@@ -126,7 +122,8 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
                     <ul className="space-y-2 pl-4 list-disc list-inside">
                         {reportData.designPatterns.map((pattern, index) => (
                          <li key={`pattern-${index}`} className="text-sm text-foreground">
-                            {pattern} - <a href={`https://refactoring.guru/design-patterns/${pattern.split(' ')[0].toLowerCase().replace(/\s+/g, '-')}`} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Learn more</a>
+                            {/* Adjust link generation if needed, this is a basic attempt */}
+                            {pattern} - <a href={`https://refactoring.guru/design-patterns/${pattern.split(/[\s(]+/)[0].toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Learn more</a>
                         </li>
                         ))}
                     </ul>
@@ -136,7 +133,7 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
 
                 {reportData.suggestedRefactoringSteps && reportData.suggestedRefactoringSteps.length > 0 && (
                 <AccordionItem value="steps">
-                    <AccordionTrigger className="text-lg font-medium">
+                    <AccordionTrigger className="text-lg font-medium hover:no-underline">
                     <div className="flex items-center">
                         {getCategoryIcon('step')} Suggested Refactoring Steps ({reportData.suggestedRefactoringSteps.length})
                     </div>
