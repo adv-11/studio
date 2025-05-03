@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { AlertCircle, Lightbulb, Download, FileText } from 'lucide-react';
+import { AlertCircle, Lightbulb, Download, FileText, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 import type { AnalyzeCodeAndProvideReportOutput } from "@/ai/flows/code-analysis"; // Import the correct type
 
 // Use the imported type directly
@@ -16,29 +17,15 @@ interface AnalysisReportProps {
   isLoading?: boolean;
 }
 
-// Mock data for demonstration purposes when no reportData is passed (can be removed or kept for testing)
-// const mockReportData: AnalysisReportData = {
-//   report: "Initial analysis indicates several areas for improvement, particularly around method length and class cohesion. Applying suggested refactorings could enhance maintainability.",
-//   codeSmells: ["Long Method", "Large Class", "Feature Envy"],
-//   designPatterns: ["Factory Method (Potential)", "Observer (Consideration)"],
-//   suggestedRefactoringSteps: [
-//     "Extract Method: Break down `process_data` into smaller, focused functions.",
-//     "Move Method: Relocate `calculate_metrics` to the `MetricsCalculator` class.",
-//     "Introduce Parameter Object: Consolidate `user_id`, `session_id`, `timestamp` into a `RequestContext` object.",
-//     "Replace Conditional with Polymorphism: Refactor `if/elif` block handling different report types using Strategy pattern.",
-//   ],
-//   starterTemplate: "placeholder_template_id" // Example
-// };
-
 // Helper to get an icon for a category
 const getCategoryIcon = (category: 'smell' | 'pattern' | 'step') => {
   switch (category) {
     case 'smell':
-      return <AlertCircle className="h-5 w-5 text-destructive mr-2" />;
+      return <AlertCircle className="h-5 w-5 text-destructive mr-2 flex-shrink-0" />;
     case 'pattern':
-      return <Lightbulb className="h-5 w-5 text-yellow-500 mr-2" />; // Using yellow for potential patterns
+      return <Lightbulb className="h-5 w-5 text-yellow-500 mr-2 flex-shrink-0" />; // Using yellow for potential patterns
     case 'step':
-      return <FileText className="h-5 w-5 text-accent mr-2" />;
+      return <FileText className="h-5 w-5 text-accent mr-2 flex-shrink-0" />;
     default:
       return null;
   }
@@ -46,10 +33,9 @@ const getCategoryIcon = (category: 'smell' | 'pattern' | 'step') => {
 
 
 export function AnalysisReport({ reportData: propReportData, isLoading }: AnalysisReportProps) {
-    // Use propReportData if available, otherwise null
-    const reportData = isLoading ? null : (propReportData || null);
+    const reportData = propReportData; // Directly use propReportData
 
-    const hasData = reportData && (
+    const hasData = !isLoading && reportData && (
         reportData.report ||
         (reportData.codeSmells && reportData.codeSmells.length > 0) ||
         (reportData.designPatterns && reportData.designPatterns.length > 0) ||
@@ -58,29 +44,56 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
 
     const handleDownloadTemplate = () => {
         // TODO: Implement download logic for the starter template
-        // This might involve calling another Genkit flow (generateStarterTemplate)
-        // with relevant info (e.g., refactoring steps, language choice)
-        // and then handling the base64 zip data.
         alert("Download starter template functionality not yet implemented.");
         console.log("Download template requested for:", reportData?.starterTemplate);
     };
 
+    const renderLoadingState = () => (
+        <div className="space-y-6 p-1">
+            {/* Skeleton for Summary Card */}
+            <Card>
+                <CardHeader>
+                    <Skeleton className="h-6 w-1/3" />
+                </CardHeader>
+                <CardContent className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-5/6" />
+                    <Skeleton className="h-4 w-3/4" />
+                </CardContent>
+            </Card>
 
-  return (
-    <ScrollArea className="h-[60vh] pr-4"> {/* Adjust height as needed */}
-     {isLoading ? (
-        <div className="flex justify-center items-center h-full">
-           {/* Optional: Add a spinner */}
-          <p className="text-muted-foreground animate-pulse">Analyzing code...</p>
+            {/* Skeletons for Accordion Items */}
+            <div className="space-y-4">
+                <div className="border-b">
+                    <Skeleton className="h-10 w-full" />
+                </div>
+                 <div className="border-b">
+                    <Skeleton className="h-10 w-full" />
+                </div>
+                 <div className="border-b">
+                    <Skeleton className="h-10 w-full" />
+                </div>
+            </div>
+
+             {/* Skeleton for Download Button */}
+            <div className="mt-6 text-center flex flex-col items-center">
+                <Skeleton className="h-10 w-48" />
+                <Skeleton className="h-3 w-64 mt-2" />
+            </div>
         </div>
-      ) : !hasData ? (
-         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+    );
+
+    const renderEmptyState = () => (
+         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-6">
            <FileText size={48} className="mb-4 opacity-50" />
-           <p>Submit code via the form to see the refactoring report here.</p>
+           <p className="text-lg">No Report Yet</p>
+           <p>Submit code via the form on the left to generate a refactoring report.</p>
          </div>
-      ) : (
+    );
+
+    const renderReportContent = () => (
         <div className="space-y-6">
-            {reportData.report && (
+            {reportData?.report && (
                  <Card>
                     <CardHeader>
                         <CardTitle>Analysis Summary</CardTitle>
@@ -91,16 +104,17 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
                 </Card>
             )}
 
-            <Accordion type="multiple" defaultValue={['smells', 'steps', 'patterns']} className="w-full"> {/* Add 'patterns' to default */}
-             {reportData.codeSmells && reportData.codeSmells.length > 0 && (
+            <Accordion type="multiple" defaultValue={['smells', 'steps', 'patterns']} className="w-full">
+             {reportData?.codeSmells && reportData.codeSmells.length > 0 && (
                 <AccordionItem value="smells">
                     <AccordionTrigger className="text-lg font-medium hover:no-underline">
-                    <div className="flex items-center">
-                         {getCategoryIcon('smell')} Detected Code Smells ({reportData.codeSmells.length})
+                    <div className="flex items-center w-full">
+                         {getCategoryIcon('smell')}
+                         <span className="flex-1 text-left">Detected Code Smells ({reportData.codeSmells.length})</span>
                     </div>
                     </AccordionTrigger>
                     <AccordionContent className="pt-2">
-                    <ul className="space-y-2 pl-4 list-disc list-inside">
+                    <ul className="space-y-2 pl-8 list-disc list-outside">
                         {reportData.codeSmells.map((smell, index) => (
                         <li key={`smell-${index}`} className="text-sm text-foreground">
                             {smell} - <a href={`https://refactoring.guru/smells/${smell.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Learn more</a>
@@ -111,18 +125,18 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
                 </AccordionItem>
                 )}
 
-                {reportData.designPatterns && reportData.designPatterns.length > 0 && (
+                {reportData?.designPatterns && reportData.designPatterns.length > 0 && (
                 <AccordionItem value="patterns">
                     <AccordionTrigger className="text-lg font-medium hover:no-underline">
-                     <div className="flex items-center">
-                         {getCategoryIcon('pattern')} Identified Design Patterns / Opportunities ({reportData.designPatterns.length})
+                     <div className="flex items-center w-full">
+                         {getCategoryIcon('pattern')}
+                         <span className="flex-1 text-left">Identified Design Patterns / Opportunities ({reportData.designPatterns.length})</span>
                      </div>
                     </AccordionTrigger>
                     <AccordionContent className="pt-2">
-                    <ul className="space-y-2 pl-4 list-disc list-inside">
+                    <ul className="space-y-2 pl-8 list-disc list-outside">
                         {reportData.designPatterns.map((pattern, index) => (
                          <li key={`pattern-${index}`} className="text-sm text-foreground">
-                            {/* Adjust link generation if needed, this is a basic attempt */}
                             {pattern} - <a href={`https://refactoring.guru/design-patterns/${pattern.split(/[\s(]+/)[0].toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Learn more</a>
                         </li>
                         ))}
@@ -131,19 +145,19 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
                 </AccordionItem>
                 )}
 
-                {reportData.suggestedRefactoringSteps && reportData.suggestedRefactoringSteps.length > 0 && (
+                {reportData?.suggestedRefactoringSteps && reportData.suggestedRefactoringSteps.length > 0 && (
                 <AccordionItem value="steps">
                     <AccordionTrigger className="text-lg font-medium hover:no-underline">
-                    <div className="flex items-center">
-                        {getCategoryIcon('step')} Suggested Refactoring Steps ({reportData.suggestedRefactoringSteps.length})
+                    <div className="flex items-center w-full">
+                        {getCategoryIcon('step')}
+                        <span className="flex-1 text-left">Suggested Refactoring Steps ({reportData.suggestedRefactoringSteps.length})</span>
                     </div>
                     </AccordionTrigger>
                     <AccordionContent className="pt-2">
-                    <ol className="space-y-3 pl-4 list-decimal list-inside">
+                    <ol className="space-y-3 pl-8 list-decimal list-outside">
                         {reportData.suggestedRefactoringSteps.map((step, index) => (
                         <li key={`step-${index}`} className="text-sm text-foreground">
                             {step}
-                            {/* Optionally add 'Learn more' links if refactoring names are reliably extractable */}
                         </li>
                         ))}
                     </ol>
@@ -153,7 +167,7 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
             </Accordion>
 
 
-          {reportData.starterTemplate && (
+          {reportData?.starterTemplate && (
             <div className="mt-6 text-center">
               <Button onClick={handleDownloadTemplate}>
                 <Download className="mr-2 h-4 w-4" /> Download Starter Template
@@ -164,7 +178,17 @@ export function AnalysisReport({ reportData: propReportData, isLoading }: Analys
             </div>
           )}
         </div>
-      )}
+    );
+
+
+  return (
+    <ScrollArea className="h-[calc(100vh-200px)] pr-4"> {/* Adjust height based on surrounding elements */}
+        {isLoading
+            ? renderLoadingState()
+            : hasData
+            ? renderReportContent()
+            : renderEmptyState()
+        }
     </ScrollArea>
   );
 }

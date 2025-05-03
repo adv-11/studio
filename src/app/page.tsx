@@ -25,8 +25,10 @@ export default function Home() {
   return (
     <div className="flex flex-col min-h-screen bg-background">
       <Header />
-      <main className="flex-1 container mx-auto px-4 py-8 md:py-12">
-        <div className="grid gap-8 md:grid-cols-2 md:gap-12 lg:gap-16">
+      {/* Reduced vertical padding */}
+      <main className="flex-1 container mx-auto px-4 py-6 md:py-8">
+        <div className="grid gap-8 md:grid-cols-2 md:gap-12 lg:gap-16 h-full">
+          {/* Input Form Column */}
           <div className="space-y-6">
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-foreground">
               Analyze Your Code
@@ -35,24 +37,29 @@ export default function Home() {
               Enter a public GitHub repository URL or upload a ZIP file containing your Python code.
               Our AI agent will analyze it for code smells, design patterns, and suggest refactoring steps.
             </p>
-            {/* Pass state setters down to the form */}
             <CodeInputForm
               setIsLoading={setIsLoading}
               setAnalysisResult={setAnalysisResult}
-              isLoading={isLoading} // Pass isLoading to disable button during analysis
+              isLoading={isLoading}
             />
           </div>
-          <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-foreground mb-4">
-              Refactoring Report
-            </h2>
-            <Separator className="mb-6" />
-            {/* Pass state down to the report */}
-            <AnalysisReport reportData={analysisResult} isLoading={isLoading} />
+
+          {/* Analysis Report Column - Added fixed height and overflow handling */}
+          <div className="rounded-lg border bg-card text-card-foreground shadow-sm flex flex-col h-[calc(100vh-160px)]"> {/* Adjust height based on header/footer */}
+            <div className="p-6 flex-shrink-0">
+                <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-foreground">
+                Refactoring Report
+                </h2>
+            </div>
+            <Separator className="mb-0 flex-shrink-0" /> {/* Remove margin bottom */}
+            {/* AnalysisReport will now use ScrollArea internally */}
+            <div className="flex-grow overflow-hidden p-6 pt-0"> {/* Add padding here, remove from ScrollArea in child */}
+                 <AnalysisReport reportData={analysisResult} isLoading={isLoading} />
+            </div>
           </div>
         </div>
       </main>
-      <footer className="py-6 border-t bg-secondary/50">
+      <footer className="py-4 border-t bg-secondary/50 flex-shrink-0"> {/* Reduced padding */}
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
           © {new Date().getFullYear()} VibeRefactor. Powered by AI.
         </div>
